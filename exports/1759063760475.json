@@ -1,0 +1,19 @@
+{
+  "timestamp": 1759063760475,
+  "operation": {
+    "id": "webapp:react:views",
+    "refs": {
+      "id": "UV_SharedTaskView",
+      "version": "latest"
+    }
+  },
+  "projectId": "make-a-task-management-app",
+  "files": [
+    {
+      "path": "../../apps/make-a-task-management-app/vitereact/src/components/views/UV_SharedTaskView.tsx",
+      "type": "text",
+      "size": 7135,
+      "dependencies": false
+    }
+  ]
+}

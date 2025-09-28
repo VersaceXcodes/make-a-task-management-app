@@ -1,0 +1,896 @@
+asyncapi: 2.0.0
+info:
+  title: TaskHub Realtime API
+  version: 1.0.0
+  description: AsyncAPI specification for realtime events in TaskHub, covering
+    task management, authentication state updates, notifications, and offline
+    sync for user-facing data operations. All payloads use Zod-defined schemas
+    with string IDs and snake_case fields.
+servers:
+  dev:
+    url: ws://localhost:3000
+    protocol: ws
+    description: Development WebSocket server for realtime features
+channels:
+  authentication/{user_id}:
+    description: Channel for user-specific authentication state updates, such as
+      login/logout events that affect global authentication_state.
+    subscribe:
+      summary: Subscribe to authentication events for the user.
+      operationId: subscribeAuthenticationUpdates
+      message:
+        $ref: "#/components/messages/AuthenticationStateUpdate"
+    publish:
+      summary: Publish authentication changes (e.g., from server-side session updates).
+      operationId: publishAuthenticationChange
+      message:
+        oneOf:
+          - $ref: "#/components/messages/UserAuthenticated"
+          - $ref: "#/components/messages/UserDeauthenticated"
+          - $ref: "#/components/messages/GuestModeEntered"
+          - $ref: "#/components/messages/GuestModeExited"
+  tasks/{user_id}:
+    description: Channel for user-specific task events, enabling realtime updates to
+      the task list, status, order, and sharing in the dashboard. Supports
+      filtering by status, category, priority, tags via query params if needed,
+      but events are broadcast for all tasks.
+    parameters:
+      user_id:
+        description: The user ID for scoping tasks.
+        schema:
+          type: string
+    subscribe:
+      summary: Subscribe to task events for realtime dashboard updates.
+      operationId: subscribeTaskUpdates
+      message:
+        oneOf:
+          - $ref: "#/components/messages/TaskCreated"
+          - $ref: "#/components/messages/TaskUpdated"
+          - $ref: "#/components/messages/TaskDeleted"
+          - $ref: "#/components/messages/TasksBulkUpdated"
+          - $ref: "#/components/messages/TasksBulkDeleted"
+          - $ref: "#/components/messages/TaskDuplicated"
+          - $ref: "#/components/messages/TaskArchived"
+          - $ref: "#/components/messages/TaskUnarchived"
+          - $ref: "#/components/messages/TaskShareGenerated"
+          - $ref: "#/components/messages/TaskOrderUpdated"
+    publish:
+      summary: Publish task-related changes from client actions like create, edit,
+        delete, bulk, duplicate, archive, share, reorder.
+      operationId: publishTaskChange
+      message:
+        oneOf:
+          - $ref: "#/components/messages/TaskCreatedPayload"
+          - $ref: "#/components/messages/TaskUpdatedPayload"
+          - $ref: "#/components/messages/TaskDeletedPayload"
+          - $ref: "#/components/messages/TasksBulkUpdatedPayload"
+          - $ref: "#/components/messages/TasksBulkDeletedPayload"
+          - $ref: "#/components/messages/TaskDuplicatedPayload"
+          - $ref: "#/components/messages/TaskArchivedPayload"
+          - $ref: "#/components/messages/TaskUnarchivedPayload"
+          - $ref: "#/components/messages/TaskShareGeneratedPayload"
+          - $ref: "#/components/messages/TaskOrderUpdatedPayload"
+  notifications/{user_id}:
+    description: Channel for global notifications, pushing toasts and feedback for
+      actions like task saves, errors, offline sync to update
+      global_notifications state.
+    parameters:
+      user_id:
+        description: The user ID for scoping notifications.
+        schema:
+          type: string
+    subscribe:
+      summary: Subscribe to notification events for UI toasts and state updates.
+      operationId: subscribeNotifications
+      message:
+        $ref: "#/components/messages/NotificationPushed"
+    publish:
+      summary: Publish notifications from server or synced actions.
+      operationId: publishNotification
+      message:
+        $ref: "#/components/messages/NotificationPayload"
+  search/{user_id}:
+    description: Channel for realtime search results updates, triggered by
+      global_search_query changes or task modifications affecting search
+      results.
+    parameters:
+      user_id:
+        description: The user ID for scoping search.
+        schema:
+          type: string
+    subscribe:
+      summary: Subscribe to search result updates for real-time filtering in dashboard.
+      operationId: subscribeSearchUpdates
+      message:
+        $ref: "#/components/messages/SearchResultsUpdated"
+    publish:
+      summary: Publish updated search results after task changes or query refinements.
+      operationId: publishSearchUpdate
+      message:
+        $ref: "#/components/messages/SearchResultsPayload"
+  offline/{user_id}:
+    description: Channel for offline status and queued actions sync, updating
+      offline_status state when reconnecting.
+    parameters:
+      user_id:
+        description: The user ID for scoping offline sync.
+        schema:
+          type: string
+    subscribe:
+      summary: Subscribe to offline sync events for queued action resolution.
+      operationId: subscribeOfflineSync
+      message:
+        oneOf:
+          - $ref: "#/components/messages/OfflineStatusChanged"
+          - $ref: "#/components/messages/QueuedActionsSynced"
+    publish:
+      summary: Publish offline status changes and sync confirmations.
+      operationId: publishOfflineStatus
+      message:
+        oneOf:
+          - $ref: "#/components/messages/OfflineStatusPayload"
+          - $ref: "#/components/messages/QueuedActionsPayload"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        password_hash:
+          type: string
+        name:
+          type: string
+          nullable: true
+        predefined_categories:
+          type: array
+          items:
+            type: string
+          default:
+            - Work
+            - Personal
+            - School
+            - Other
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - user_id
+        - email
+        - password_hash
+        - created_at
+    Task:
+      type: object
+      properties:
+        task_id:
+          type: string
+        user_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+        order_index:
+          type: integer
+          minimum: 0
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - task_id
+        - user_id
+        - title
+        - status
+        - order_index
+        - created_at
+        - updated_at
+    CreateTaskInput:
+      type: object
+      properties:
+        user_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+          default: incomplete
+        order_index:
+          type: integer
+          minimum: 0
+          default: 0
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - user_id
+        - title
+    UpdateTaskInput:
+      type: object
+      properties:
+        task_id:
+          type: string
+        user_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+          nullable: true
+        order_index:
+          type: integer
+          minimum: 0
+          nullable: true
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - task_id
+    SearchTaskInput:
+      type: object
+      properties:
+        query:
+          type: string
+          nullable: true
+        user_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        limit:
+          type: integer
+          default: 10
+        offset:
+          type: integer
+          default: 0
+        sort_by:
+          type: string
+          enum:
+            - title
+            - due_date
+            - priority
+            - status
+            - order_index
+            - created_at
+            - updated_at
+          default: order_index
+        sort_order:
+          type: string
+          enum:
+            - asc
+            - desc
+          default: asc
+      required: []
+    AuthenticationState:
+      type: object
+      properties:
+        current_user:
+          $ref: "#/components/schemas/User"
+          nullable: true
+        auth_token:
+          type: string
+          nullable: true
+        is_guest:
+          type: boolean
+        authentication_status:
+          type: object
+          properties:
+            is_authenticated:
+              type: boolean
+            is_loading:
+              type: boolean
+          required:
+            - is_authenticated
+            - is_loading
+        error_message:
+          type: string
+          nullable: true
+      required:
+        - authentication_status
+    Notification:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - success
+            - error
+            - info
+            - warning
+        message:
+          type: string
+      required:
+        - type
+        - message
+    SearchResults:
+      type: object
+      properties:
+        search_query:
+          type: string
+        search_results:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+          nullable: true
+      required:
+        - search_query
+    OfflineStatus:
+      type: object
+      properties:
+        is_offline:
+          type: boolean
+        queued_actions:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - is_offline
+    QueuedAction:
+      type: object
+      properties:
+        action_type:
+          type: string
+          enum:
+            - add_task
+            - edit_task
+            - delete_task
+            - bulk_update
+            - bulk_delete
+        payload:
+          type: object
+        synced:
+          type: boolean
+          default: false
+      required:
+        - action_type
+        - payload
+  messages:
+    AuthenticationStateUpdate:
+      name: authenticationStateUpdate
+      title: Authentication State Update
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/AuthenticationState"
+    UserAuthenticated:
+      name: userAuthenticated
+      title: User Authenticated Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          event_type:
+            type: string
+            enum:
+              - authenticated
+            const: authenticated
+          current_user:
+            $ref: "#/components/schemas/User"
+          auth_token:
+            type: string
+        required:
+          - event_type
+          - current_user
+          - auth_token
+    UserDeauthenticated:
+      name: userDeauthenticated
+      title: User Deauthenticated Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          event_type:
+            type: string
+            enum:
+              - deauthenticated
+            const: deauthenticated
+          current_user:
+            $ref: "#/components/schemas/User"
+            nullable: true
+          auth_token:
+            type: string
+            nullable: true
+        required:
+          - event_type
+    GuestModeEntered:
+      name: guestModeEntered
+      title: Guest Mode Entered Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          event_type:
+            type: string
+            enum:
+              - guest_entered
+            const: guest_entered
+          session_id:
+            type: string
+          is_guest:
+            type: boolean
+            const: true
+        required:
+          - event_type
+          - session_id
+          - is_guest
+    GuestModeExited:
+      name: guestModeExited
+      title: Guest Mode Exited Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          event_type:
+            type: string
+            enum:
+              - guest_exited
+            const: guest_exited
+          is_guest:
+            type: boolean
+            const: false
+        required:
+          - event_type
+          - is_guest
+    TaskCreated:
+      name: taskCreated
+      title: Task Created Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Task"
+    TaskCreatedPayload:
+      name: taskCreatedPayload
+      title: Task Created Payload
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/CreateTaskInput"
+    TaskUpdated:
+      name: taskUpdated
+      title: Task Updated Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Task"
+    TaskUpdatedPayload:
+      name: taskUpdatedPayload
+      title: Task Updated Payload
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/UpdateTaskInput"
+    TaskDeleted:
+      name: taskDeleted
+      title: Task Deleted Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          user_id:
+            type: string
+        required:
+          - task_id
+          - user_id
+    TaskDeletedPayload:
+      name: taskDeletedPayload
+      title: Task Deleted Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          user_id:
+            type: string
+        required:
+          - task_id
+          - user_id
+    TasksBulkUpdated:
+      name: tasksBulkUpdated
+      title: Tasks Bulk Updated Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_ids:
+            type: array
+            items:
+              type: string
+          updates:
+            $ref: "#/components/schemas/UpdateTaskInput"
+          user_id:
+            type: string
+        required:
+          - task_ids
+          - updates
+          - user_id
+    TasksBulkUpdatedPayload:
+      name: tasksBulkUpdatedPayload
+      title: Tasks Bulk Updated Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_ids:
+            type: array
+            items:
+              type: string
+          updates:
+            $ref: "#/components/schemas/UpdateTaskInput"
+          user_id:
+            type: string
+        required:
+          - task_ids
+          - updates
+          - user_id
+    TasksBulkDeleted:
+      name: tasksBulkDeleted
+      title: Tasks Bulk Deleted Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_ids:
+            type: array
+            items:
+              type: string
+          user_id:
+            type: string
+        required:
+          - task_ids
+          - user_id
+    TasksBulkDeletedPayload:
+      name: tasksBulkDeletedPayload
+      title: Tasks Bulk Deleted Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_ids:
+            type: array
+            items:
+              type: string
+          user_id:
+            type: string
+        required:
+          - task_ids
+          - user_id
+    TaskDuplicated:
+      name: taskDuplicated
+      title: Task Duplicated Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Task"
+    TaskDuplicatedPayload:
+      name: taskDuplicatedPayload
+      title: Task Duplicated Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          original_task_id:
+            type: string
+          new_task:
+            $ref: "#/components/schemas/CreateTaskInput"
+          user_id:
+            type: string
+        required:
+          - original_task_id
+          - new_task
+          - user_id
+    TaskArchived:
+      name: taskArchived
+      title: Task Archived Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          status:
+            type: string
+            enum:
+              - completed
+            const: completed
+          is_archived:
+            type: boolean
+            const: true
+          user_id:
+            type: string
+        required:
+          - task_id
+          - status
+          - is_archived
+          - user_id
+    TaskArchivedPayload:
+      name: taskArchivedPayload
+      title: Task Archived Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          status:
+            type: string
+            enum:
+              - completed
+          is_archived:
+            type: boolean
+            const: true
+          user_id:
+            type: string
+        required:
+          - task_id
+          - status
+          - is_archived
+          - user_id
+    TaskUnarchived:
+      name: taskUnarchived
+      title: Task Unarchived Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          status:
+            type: string
+            enum:
+              - incomplete
+            const: incomplete
+          is_archived:
+            type: boolean
+            const: false
+          user_id:
+            type: string
+        required:
+          - task_id
+          - status
+          - is_archived
+          - user_id
+    TaskUnarchivedPayload:
+      name: taskUnarchivedPayload
+      title: Task Unarchived Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          status:
+            type: string
+            enum:
+              - incomplete
+          is_archived:
+            type: boolean
+            const: false
+          user_id:
+            type: string
+        required:
+          - task_id
+          - status
+          - is_archived
+          - user_id
+    TaskShareGenerated:
+      name: taskShareGenerated
+      title: Task Share Generated Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Task"
+    TaskShareGeneratedPayload:
+      name: taskShareGeneratedPayload
+      title: Task Share Generated Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          task_id:
+            type: string
+          share_expires_at:
+            type: string
+            format: date-time
+          share_url:
+            type: string
+          user_id:
+            type: string
+        required:
+          - task_id
+          - share_expires_at
+          - share_url
+          - user_id
+    TaskOrderUpdated:
+      name: taskOrderUpdated
+      title: Task Order Updated Event
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          tasks:
+            type: array
+            items:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                order_index:
+                  type: integer
+                  minimum: 0
+              required:
+                - task_id
+                - order_index
+          user_id:
+            type: string
+        required:
+          - tasks
+          - user_id
+    TaskOrderUpdatedPayload:
+      name: taskOrderUpdatedPayload
+      title: Task Order Updated Payload
+      contentType: application/json
+      payload:
+        type: object
+        properties:
+          tasks:
+            type: array
+            items:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                order_index:
+                  type: integer
+                  minimum: 0
+              required:
+                - task_id
+                - order_index
+          user_id:
+            type: string
+        required:
+          - tasks
+          - user_id
+    NotificationPushed:
+      name: notificationPushed
+      title: Notification Pushed Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Notification"
+    NotificationPayload:
+      name: notificationPayload
+      title: Notification Payload
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/Notification"
+    SearchResultsUpdated:
+      name: searchResultsUpdated
+      title: Search Results Updated Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/SearchResults"
+    SearchResultsPayload:
+      name: searchResultsPayload
+      title: Search Results Payload
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/SearchResults"
+    OfflineStatusChanged:
+      name: offlineStatusChanged
+      title: Offline Status Changed Event
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/OfflineStatus"
+    OfflineStatusPayload:
+      name: offlineStatusPayload
+      title: Offline Status Payload
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/OfflineStatus"
+    QueuedActionsSynced:
+      name: queuedActionsSynced
+      title: Queued Actions Synced Event
+      contentType: application/json
+      payload:
+        type: array
+        items:
+          $ref: "#/components/schemas/QueuedAction"
+    QueuedActionsPayload:
+      name: queuedActionsPayload
+      title: Queued Actions Payload
+      contentType: application/json
+      payload:
+        type: array
+        items:
+          $ref: "#/components/schemas/QueuedAction"

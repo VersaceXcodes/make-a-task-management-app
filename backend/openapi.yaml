@@ -1,0 +1,922 @@
+openapi: 3.0.0
+info:
+  title: TaskHub API
+  description: User-facing API for TaskHub task management application, covering
+    authentication, task CRUD, filtering, searching, bulk operations, sharing,
+    and user profile management.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user account
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT authentication token
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid input (e.g., email already exists, password too short)
+        "500":
+          description: Internal server error
+  /auth/login:
+    post:
+      summary: Log in an existing user
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: User logged in successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT authentication token
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials
+        "500":
+          description: Internal server error
+  /auth/logout:
+    post:
+      summary: Log out the current user (invalidates the token server-side)
+      operationId: logoutUser
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "401":
+          description: Unauthorized (invalid token)
+        "500":
+          description: Internal server error
+  /auth/forgot-password:
+    post:
+      summary: Request a password reset link (simulated send via email)
+      operationId: requestPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Reset request processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Reset link sent to your email
+        "400":
+          description: Invalid email
+        "404":
+          description: User not found
+        "500":
+          description: Internal server error
+  /auth/reset-password:
+    post:
+      summary: Reset the user's password using a reset token
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset successfully, auto-logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: New JWT authentication token
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid token or password
+        "404":
+          description: Token not found or expired
+        "500":
+          description: Internal server error
+  /users/me:
+    get:
+      summary: Get the current user's profile information
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized (invalid token)
+        "500":
+          description: Internal server error
+  /users/{user_id}/categories:
+    get:
+      summary: Get the current user's predefined categories
+      operationId: getUserCategories
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User's categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "401":
+          description: Unauthorized
+        "404":
+          description: User not found
+        "500":
+          description: Internal server error
+    post:
+      summary: Add a new custom category to the user's predefined categories
+      operationId: addUserCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCategoryRequest"
+      responses:
+        "200":
+          description: Category added successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "400":
+          description: Invalid category
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+  /tasks:
+    get:
+      summary: List tasks for the current user with filtering, sorting, and search
+      operationId: listTasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search_query
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search query for title, description, or tags
+        - name: filter_status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - incomplete
+              - completed
+          description: Filter by task status (maps to status)
+        - name: filter_category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by category (maps to category)
+        - name: filter_priority
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - low
+              - medium
+              - high
+          description: Filter by priority (maps to priority)
+        - name: filter_tags
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by specific tag
+        - name: sort_by
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - title
+              - due_date
+              - priority
+              - status
+              - order_index
+              - created_at
+              - updated_at
+            default: order_index
+        - name: sort_order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Task"
+                  total:
+                    type: integer
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+    post:
+      summary: Create a new task for the current user
+      operationId: createTask
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid input (e.g., missing title)
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+  /tasks/{task_id}:
+    get:
+      summary: Get a specific task by ID for the current user
+      operationId: getTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+    patch:
+      summary: Update a specific task (partial updates supported)
+      operationId: updateTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid input
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+    delete:
+      summary: Delete a specific task (soft delete or permanent based on implementation)
+      operationId: deleteTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+  /tasks/{task_id}/duplicate:
+    post:
+      summary: Duplicate an existing task (creates a copy with prefix)
+      operationId: duplicateTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Duplicated task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+  /tasks/{task_id}/toggle-status:
+    patch:
+      summary: Toggle the status of a task (incomplete to completed or vice versa)
+      operationId: toggleTaskStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToggleStatusRequest"
+      responses:
+        "200":
+          description: Status toggled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid status
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+  /tasks/{task_id}/share:
+    post:
+      summary: Generate or update share link for a task (sets expiration 30 days)
+      operationId: shareTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Share link generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share_url:
+                    type: string
+                    example: http://localhost:3000/share/task_id
+                  expires_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+        "404":
+          description: Task not found
+        "500":
+          description: Internal server error
+  /tasks/bulk-complete:
+    post:
+      summary: Bulk mark tasks as completed
+      operationId: bulkCompleteTasks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkActionRequest"
+      responses:
+        "200":
+          description: Tasks updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated_count:
+                    type: integer
+        "400":
+          description: Invalid task IDs
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+  /tasks/bulk-delete:
+    delete:
+      summary: Bulk delete tasks
+      operationId: bulkDeleteTasks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkActionRequest"
+      responses:
+        "200":
+          description: Tasks deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+        "400":
+          description: Invalid task IDs
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+  /tasks/reorder:
+    patch:
+      summary: Reorder tasks by updating order_index based on provided order
+      operationId: reorderTasks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReorderTasksRequest"
+      responses:
+        "200":
+          description: Tasks reordered
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+        "400":
+          description: Invalid order
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal server error
+  /public/tasks/{task_id}:
+    get:
+      summary: Get a shared task publicly (read-only, no auth required, checks
+        expiration)
+      operationId: getSharedTask
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Shared task details (partial, no user-specific fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedTask"
+        "404":
+          description: Task not found or expired
+        "500":
+          description: Internal server error
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+        predefined_categories:
+          type: array
+          items:
+            type: string
+          default:
+            - Work
+            - Personal
+            - School
+            - Other
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - user_id
+        - email
+        - created_at
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+          nullable: true
+      required:
+        - email
+        - password
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+        - email
+    ResetPasswordRequest:
+      type: object
+      properties:
+        reset_token:
+          type: string
+        password:
+          type: string
+          minLength: 8
+      required:
+        - reset_token
+        - password
+    AddCategoryRequest:
+      type: object
+      properties:
+        category:
+          type: string
+          minLength: 1
+          maxLength: 100
+      required:
+        - category
+    Task:
+      type: object
+      properties:
+        task_id:
+          type: string
+        user_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+        order_index:
+          type: integer
+          minimum: 0
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - task_id
+        - user_id
+        - title
+        - status
+        - order_index
+        - created_at
+        - updated_at
+    CreateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          maxLength: 100
+          nullable: true
+        tags:
+          type: string
+          maxLength: 500
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+          default: incomplete
+        order_index:
+          type: integer
+          minimum: 0
+          default: 0
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - title
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          nullable: true
+        description:
+          type: string
+          maxLength: 1000
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          maxLength: 100
+          nullable: true
+        tags:
+          type: string
+          maxLength: 500
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+          nullable: true
+        order_index:
+          type: integer
+          minimum: 0
+          nullable: true
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    ToggleStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+      required:
+        - status
+    BulkActionRequest:
+      type: object
+      properties:
+        task_ids:
+          type: array
+          items:
+            type: string
+      required:
+        - task_ids
+    ReorderTasksRequest:
+      type: object
+      properties:
+        order:
+          type: array
+          items:
+            type: string
+          description: Array of task_ids in new order
+      required:
+        - order
+    SharedTask:
+      type: object
+      properties:
+        task_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - incomplete
+            - completed
+        share_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - task_id
+        - title
+        - status

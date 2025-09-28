@@ -1,0 +1,21 @@
+{
+  "timestamp": 1759063573318,
+  "operation": {
+    "id": "backend:tests:main"
+  },
+  "projectId": "make-a-task-management-app",
+  "files": [
+    {
+      "path": "../../apps/make-a-task-management-app/backend/server.test.ts",
+      "type": "text",
+      "size": 33756,
+      "dependencies": false
+    },
+    {
+      "path": "../../apps/make-a-task-management-app/backend/jest.config.ts",
+      "type": "text",
+      "size": 419,
+      "dependencies": false
+    }
+  ]
+}

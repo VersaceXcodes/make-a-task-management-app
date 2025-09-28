@@ -1,0 +1,15 @@
+{
+  "timestamp": 1759063431911,
+  "operation": {
+    "id": "backend:server:main"
+  },
+  "projectId": "make-a-task-management-app",
+  "files": [
+    {
+      "path": "../../apps/make-a-task-management-app/backend/server.ts",
+      "type": "text",
+      "size": 37467,
+      "dependencies": false
+    }
+  ]
+}

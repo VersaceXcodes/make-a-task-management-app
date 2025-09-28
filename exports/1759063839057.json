@@ -1,0 +1,19 @@
+{
+  "timestamp": 1759063839057,
+  "operation": {
+    "id": "webapp:react:views",
+    "refs": {
+      "id": "UV_ForgotPassword",
+      "version": "1759063779319"
+    }
+  },
+  "projectId": "make-a-task-management-app",
+  "files": [
+    {
+      "path": "../../apps/make-a-task-management-app/vitereact/src/components/views/UV_ForgotPassword.tsx",
+      "type": "text",
+      "size": 8933,
+      "dependencies": false
+    }
+  ]
+}

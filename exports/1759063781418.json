@@ -1,0 +1,19 @@
+{
+  "timestamp": 1759063781418,
+  "operation": {
+    "id": "webapp:react:views",
+    "refs": {
+      "id": "GV_Header",
+      "version": "latest"
+    }
+  },
+  "projectId": "make-a-task-management-app",
+  "files": [
+    {
+      "path": "../../apps/make-a-task-management-app/vitereact/src/components/views/GV_Header.tsx",
+      "type": "text",
+      "size": 18919,
+      "dependencies": false
+    }
+  ]
+}
