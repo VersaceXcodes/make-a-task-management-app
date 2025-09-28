@@ -902,8 +902,8 @@ app.patch('/api/tasks/:task_id/toggle-status', authenticateToken, async (req, re
     const { task_id } = req.params;
     const { status } = req.body;
 
-    if (!status || !['incomplete', 'completed'].includes(status)) {
-      return res.status(400).json(createErrorResponse('Valid status required (incomplete or completed)', null, 'INVALID_STATUS'));
+    if (!status || !['incomplete', 'completed', 'archived'].includes(status)) {
+      return res.status(400).json(createErrorResponse('Valid status required (incomplete, completed, or archived)', null, 'INVALID_STATUS'));
     }
 
     const client = await pool.connect();

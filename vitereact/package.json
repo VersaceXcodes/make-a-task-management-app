@@ -71,7 +71,6 @@
     "vaul": "^0.9.3",
     "zod": "^3.23.8",
     "zustand": "*",
-    "zustand/middleware": "*",
     "@fortawesome/react-fontawesome": "*",
     "@fortawesome/free-solid-svg-icons": "*"
   },

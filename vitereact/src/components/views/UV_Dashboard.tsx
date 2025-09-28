@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/store/main';
 import axios from 'axios';
 import { z } from 'zod';
-import type { z as Zod } from 'zod';
+
 
 // From Zod schemas
 const taskSchema = z.object({
@@ -42,11 +42,11 @@ const updateTaskInputSchema = createTaskInputSchema.partial().extend({
 });
 type UpdateTaskInput = z.infer<typeof updateTaskInputSchema>;
 
-const API_BASE = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api`;
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'}/api`;
 
 const UV_Dashboard: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+
   const queryClient = useQueryClient();
 
   // Global store individual selectors
@@ -145,7 +145,7 @@ const UV_Dashboard: React.FC = () => {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return t.status !== 'archived' && t.due_date >= today && t.due_date < tomorrow;
+    return t.status !== 'archived' && t.due_date && t.due_date >= today && t.due_date < tomorrow;
   }), [tasksList]);
   const upcomingTasks = useMemo(() => tasksList.filter(t => {
     const now = new Date();
@@ -153,7 +153,7 @@ const UV_Dashboard: React.FC = () => {
     weekLater.setDate(weekLater.getDate() + 7);
     const todayEnd = new Date(now);
     todayEnd.setHours(23, 59, 59, 999);
-    return t.status !== 'archived' && t.due_date > todayEnd && t.due_date <= weekLater;
+    return t.status !== 'archived' && t.due_date && t.due_date > todayEnd && t.due_date <= weekLater;
   }), [tasksList]);
   const filteredTasks = useMemo(() => tasksList.filter(t => t.status !== 'archived'), [tasksList]); // Main list excludes archived unless filtered
 
@@ -335,9 +335,7 @@ const UV_Dashboard: React.FC = () => {
     setSelectedTasks(prev => checked ? [...prev, taskId] : prev.filter(id => id !== taskId));
   };
 
-  const handleSelectAll = (checked: boolean) => {
-    setSelectedTasks(checked ? filteredTasks.map(t => t.task_id) : []);
-  };
+
 
   const handleBulkComplete = () => bulkCompleteMutation.mutate(selectedTasks);
 
@@ -357,12 +355,12 @@ const UV_Dashboard: React.FC = () => {
 
   const handleDeleteConfirm = (taskId?: string) => {
     if (taskId) deleteMutation.mutate(taskId);
-    setConfirmModal({ isOpen: false, type: '', taskId: null, count: 0 });
+    setConfirmModal({ isOpen: false, type: 'delete', taskId: null, count: 0 });
   };
 
   const handleArchiveConfirm = (taskId: string) => {
     updateMutation.mutate({ taskId, data: { status: 'archived' } });
-    setConfirmModal({ isOpen: false, type: '', taskId: null, count: 0 });
+    setConfirmModal({ isOpen: false, type: 'delete', taskId: null, count: 0 });
   };
 
   const handleUnarchive = (task: Task) => toggleStatusMutation.mutate({ taskId: task.task_id, status: 'incomplete' });
@@ -393,7 +391,7 @@ const UV_Dashboard: React.FC = () => {
     setModalState(prev => ({ ...prev, isOpen: false, error: null }));
   };
 
-  const handleConfirmClose = () => setConfirmModal({ isOpen: false, type: '', taskId: null, count: 0 });
+  const handleConfirmClose = () => setConfirmModal({ isOpen: false, type: 'delete', taskId: null, count: 0 });
 
   // Drag handlers
   const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
@@ -444,12 +442,7 @@ const UV_Dashboard: React.FC = () => {
     }
   };
   const parseTags = (tags: string | null) => tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-  const isTomorrow = (date: Date) => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    return date >= tomorrow && date < new Date(tomorrow.getTime() + 24*60*60*1000);
-  };
+
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
@@ -888,8 +881,8 @@ const UV_Dashboard: React.FC = () => {
                 />
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="submit" disabled={createMutation.isLoading || updateMutation.isLoading} className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50">
-                  {createMutation.isLoading || updateMutation.isLoading ? 'Saving...' : 'Save'}
+                <button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50">
+                  {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
                 </button>
                 <button type="button" onClick={handleModalClose} className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400">Cancel</button>
               </div>
@@ -933,7 +926,7 @@ const UV_Dashboard: React.FC = () => {
       )}
 
       {/* Mobile Responsiveness: For cards, use md:table, but simplify with flex wrap */}
-      <style jsx>{`
+      <style>{`
         @media (max-width: 768px) {
           .task-row { flex-direction: column; gap: 0.5rem; }
           .task-row > div { flex: none; }

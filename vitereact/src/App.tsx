@@ -52,6 +52,20 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+// Root route component to handle conditional redirects
+const RootRoute: React.FC = () => {
+  const isAuthenticated = useAppStore((state) => state.authentication_state.authentication_status.is_authenticated);
+  const isGuest = useAppStore((state) => state.authentication_state.is_guest);
+  
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  if (isGuest) {
+    return <Navigate to="/guest-dashboard" replace />;
+  }
+  return <UV_Homepage />;
+};
+
 const App: React.FC = () => {
   // Individual selectors
   const isLoading = useAppStore((state) => state.authentication_state.authentication_status.is_loading);
@@ -74,23 +88,7 @@ const App: React.FC = () => {
           <main className="flex-1 flex flex-col">
             <Routes>
               {/* Root route with conditional redirect based on auth/guest */}
-              <Route
-                path="/"
-                element={
-                  (() => {
-                    // Inline component for conditional logic
-                    const isAuthenticated = useAppStore((state) => state.authentication_state.authentication_status.is_authenticated);
-                    const isGuest = useAppStore((state) => state.authentication_state.is_guest);
-                    if (isAuthenticated) {
-                      return <Navigate to="/dashboard" replace />;
-                    }
-                    if (isGuest) {
-                      return <Navigate to="/guest-dashboard" replace />;
-                    }
-                    return <UV_Homepage />;
-                  })()
-                }
-              />
+              <Route path="/" element={<RootRoute />} />
               
               {/* Public auth routes */}
               <Route path="/login" element={<UV_Login />} />

@@ -25,7 +25,7 @@ const GV_Header: React.FC = () => {
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [isOfflineBannerVisible, setIsOfflineBannerVisible] = useState(isOffline);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Assume false for header; could be prop in future
+  const [hasUnsavedChanges] = useState(false); // Assume false for header; could be prop in future
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -470,7 +470,7 @@ const GV_Header: React.FC = () => {
       )}
 
       {/* Adjust main content top padding for header + banner */}
-      <style jsx>{`
+      <style>{`
         main {
           padding-top: ${isOfflineBannerVisible ? '120px' : '64px'};
         }

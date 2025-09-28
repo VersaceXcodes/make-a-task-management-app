@@ -2,10 +2,21 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useAppStore } from '@/store/main';
 import type { z } from 'zod';
-import { taskSchema, createTaskInputSchema } from '@/path/to/zod/schemas'; // Adjust import path as per project structure; assume available
+// Define task schema locally since import path is not available
+const taskSchema = z.object({
+  task_id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  status: z.enum(['incomplete', 'completed', 'archived']),
+  due_date: z.date().nullable(),
+  priority: z.enum(['low', 'medium', 'high']).nullable(),
+  category: z.string().nullable(),
+  tags: z.string().nullable(),
+  created_at: z.date(),
+  updated_at: z.date(),
+});
 
 type Task = z.infer<typeof taskSchema>;
-type CreateTaskInput = z.infer<typeof createTaskInputSchema>;
 
 const UV_GuestDashboard: React.FC = () => {
   const { session_id } = useParams<{ session_id: string }>();
@@ -22,18 +33,25 @@ const UV_GuestDashboard: React.FC = () => {
   });
   const [sort_state, setSort_state] = useState({
     sort_by: (searchParams.get('sort_by') as any || 'order_index'),
-    sort_order: (searchParams.get('sort_order') as 'asc' | 'desc' || 'asc'),
+    sort_order: (searchParams.get('sort_order') as 'asc' | 'desc') || 'asc',
   });
   const [selected_tasks, setSelected_tasks] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modals_state, setModals_state] = useState({
     add_modal_open: false,
     edit_task_id: null as string | null,
-    form_data: { title: '', description: null, due_date: null, priority: null, category: null, tags: null },
+    form_data: { 
+      title: '', 
+      description: null as string | null, 
+      due_date: null as Date | null, 
+      priority: null as 'low' | 'medium' | 'high' | null, 
+      category: null as string | null, 
+      tags: null as string | null 
+    },
   });
   const [guest_limit_reached, setGuest_limit_reached] = useState(false);
   const [limit_modal_open, setLimit_modal_open] = useState(false);
-  const [confirm_modal, setConfirm_modal] = useState({ open: false, type: '' as 'delete' | 'bulk', task_id?: string, count?: number });
+  const [confirm_modal, setConfirm_modal] = useState<{ open: boolean; type: 'delete' | 'bulk'; task_id?: string; count?: number }>({ open: false, type: 'delete', task_id: undefined, count: 0 });
   const [search_timeout, setSearch_timeout] = useState<NodeJS.Timeout | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,7 +284,7 @@ const UV_GuestDashboard: React.FC = () => {
   }, [saveToStorage, add_notification]);
 
   const deleteTask = useCallback((id: string) => {
-    setConfirm_modal({ open: true, type: 'delete', task_id: id });
+    setConfirm_modal({ open: true, type: 'delete', task_id: id, count: 0 });
   }, []);
 
   const confirmDelete = useCallback(() => {
@@ -279,7 +297,7 @@ const UV_GuestDashboard: React.FC = () => {
       return updated;
     });
     add_notification({ type: 'success', message: 'Task deleted!', duration: 3000 });
-    setConfirm_modal({ open: false, type: '' });
+    setConfirm_modal({ open: false, type: 'delete', task_id: undefined, count: 0 });
     setLoading(false);
   }, [confirm_modal.task_id, saveToStorage, add_notification]);
 
@@ -307,7 +325,7 @@ const UV_GuestDashboard: React.FC = () => {
 
   const bulkComplete = useCallback(() => {
     if (selected_tasks.length === 0) return;
-    setConfirm_modal({ open: true, type: 'bulk', count: selected_tasks.length });
+    setConfirm_modal({ open: true, type: 'bulk', count: selected_tasks.length, task_id: undefined });
   }, [selected_tasks]);
 
   const confirmBulkComplete = useCallback(() => {
@@ -319,13 +337,13 @@ const UV_GuestDashboard: React.FC = () => {
     });
     setSelected_tasks([]);
     add_notification({ type: 'success', message: `${confirm_modal.count} tasks completed!`, duration: 3000 });
-    setConfirm_modal({ open: false, type: '' });
+    setConfirm_modal({ open: false, type: 'delete', task_id: undefined, count: 0 });
     setLoading(false);
   }, [selected_tasks, saveToStorage, add_notification, confirm_modal.count]);
 
   const bulkDelete = useCallback(() => {
     if (selected_tasks.length === 0) return;
-    setConfirm_modal({ open: true, type: 'bulk', count: selected_tasks.length });
+    setConfirm_modal({ open: true, type: 'bulk', count: selected_tasks.length, task_id: undefined });
   }, [selected_tasks]);
 
   const confirmBulkDelete = useCallback(() => {
@@ -337,7 +355,7 @@ const UV_GuestDashboard: React.FC = () => {
     });
     setSelected_tasks([]);
     add_notification({ type: 'success', message: `${confirm_modal.count} tasks deleted!`, duration: 3000 });
-    setConfirm_modal({ open: false, type: '' });
+    setConfirm_modal({ open: false, type: 'delete', task_id: undefined, count: 0 });
     setLoading(false);
   }, [selected_tasks, saveToStorage, add_notification, confirm_modal.count]);
 
@@ -385,10 +403,7 @@ const UV_GuestDashboard: React.FC = () => {
     setError(null); // Clear on change
   }, []);
 
-  const promptSignup = useCallback(() => {
-    add_notification({ type: 'warning', message: "Sign up for unlimited tasks!", duration: 5000 });
-    setLimit_modal_open(true);
-  }, [add_notification]);
+
 
   const closeLimitModal = useCallback(() => {
     setLimit_modal_open(false);
@@ -805,7 +820,7 @@ const UV_GuestDashboard: React.FC = () => {
 
       {/* Confirm Modal */}
       {confirm_modal.open && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" onClick={() => setConfirm_modal({ open: false, type: '' })}>
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" onClick={() => setConfirm_modal({ open: false, type: 'delete', task_id: undefined, count: 0 })}>
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               {confirm_modal.type === 'delete' ? 'Delete Task?' : `Bulk ${confirm_modal.type === 'bulk' && confirm_modal.count ? `${confirm_modal.count} Tasks` : ''}?`}
@@ -819,7 +834,7 @@ const UV_GuestDashboard: React.FC = () => {
                 Confirm
               </button>
               <button
-                onClick={() => setConfirm_modal({ open: false, type: '' })}
+                onClick={() => setConfirm_modal({ open: false, type: 'delete', task_id: undefined, count: 0 })}
                 className="flex-1 bg-gray-300 py-2 px-4 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 Cancel

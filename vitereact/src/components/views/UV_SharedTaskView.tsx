@@ -1,14 +1,29 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/store/main';
 import axios from 'axios';
 import { z } from 'zod';
-import { taskSchema } from '@/path/to/zod/schemas'; // Adjust import path based on project structure; assuming it's exported
+// Define task schema locally to match backend
+const taskSchema = z.object({
+  task_id: z.string(),
+  user_id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  due_date: z.coerce.date().nullable(),
+  priority: z.enum(['low', 'medium', 'high']).nullable(),
+  category: z.string().nullable(),
+  tags: z.string().nullable(),
+  status: z.enum(['incomplete', 'completed', 'archived']),
+  order_index: z.number().int().nonnegative(),
+  share_expires_at: z.coerce.date().nullable(),
+  created_at: z.coerce.date(),
+  updated_at: z.coerce.date()
+});
 
 type Task = z.infer<typeof taskSchema>;
 
-const API_BASE = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api`;
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'}/api`;
 
 const UV_SharedTaskView: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
@@ -28,23 +43,23 @@ const UV_SharedTaskView: React.FC = () => {
     return task;
   }, []);
 
-  const { data: singleTask, isLoading, error } = useQuery({
+  const { data: singleTask, isLoading, error } = useQuery<Task>({
     queryKey: ['shared-task', taskId],
     queryFn: () => fetchSharedTask(taskId || ''),
     enabled: !!taskId,
     staleTime: 60000,
     refetchOnWindowFocus: false,
     retry: 1,
-    onError: (err: Error) => {
-      const message = err.message === 'expired' ? 'This shared link has expired' : 'This shared link is invalid or expired';
-      addNotification({ type: 'error', message, duration: 5000 });
-      // Auto-redirect after 5s
-      setTimeout(() => navigate('/'), 5000);
-    },
-    onSuccess: () => {
-      addNotification({ type: 'success', message: 'Task loaded successfully', duration: 3000 });
-    },
   });
+
+  // Handle errors with useEffect since onError is deprecated
+  useEffect(() => {
+    if (error) {
+      const message = error.message === 'expired' ? 'This shared link has expired' : 'This shared link is invalid or expired';
+      addNotification({ type: 'error', message, duration: 5000 });
+      setTimeout(() => navigate('/'), 5000);
+    }
+  }, [error, addNotification, navigate]);
 
   const isOverdue = (dueDate: Date | null, status: 'incomplete' | 'completed') => dueDate && dueDate < new Date() && status === 'incomplete';
   const isUpcoming = (dueDate: Date | null) => dueDate && dueDate > new Date() && dueDate.getDate() - new Date().getDate() <= 7;
