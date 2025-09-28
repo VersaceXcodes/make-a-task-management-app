@@ -3,7 +3,7 @@ import cors from "cors";
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Pool } from 'pg';
+import { PGlite } from '@electric-sql/pglite';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import morgan from 'morgan';
@@ -68,27 +68,75 @@ function createErrorResponse(
   return response;
 }
 
-const { DATABASE_URL, PGHOST, PGDATABASE, PGUSER, PGPASSWORD, PGPORT = 5432, JWT_SECRET = 'your-secret-key' } = process.env;
+const { JWT_SECRET = 'your-secret-key' } = process.env;
 
 /*
- * PostgreSQL connection setup using provided configuration
- * Supports both DATABASE_URL and individual connection parameters
+ * PGlite in-memory database setup for development/testing
+ * This provides a full PostgreSQL-compatible database without requiring a server
  */
-const pool = new Pool(
-  DATABASE_URL
-    ? { 
-        connectionString: DATABASE_URL, 
-        ssl: { require: true } 
-      }
-    : {
-        host: PGHOST,
-        database: PGDATABASE,
-        user: PGUSER,
-        password: PGPASSWORD,
-        port: Number(PGPORT),
-        ssl: { require: true },
-      }
-);
+const db = new PGlite();
+
+// Initialize database with schema
+async function initializeDatabase() {
+  try {
+    // Create tables
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+          user_id TEXT PRIMARY KEY,
+          email TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          name TEXT,
+          predefined_categories TEXT NOT NULL DEFAULT '["Work", "Personal", "School", "Other"]',
+          created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tasks (
+          task_id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          description TEXT,
+          due_date TEXT,
+          priority TEXT,
+          category TEXT,
+          tags TEXT,
+          status TEXT NOT NULL DEFAULT 'incomplete',
+          order_index INTEGER NOT NULL DEFAULT 0,
+          share_expires_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS password_resets (
+          reset_token TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+          expires_at TEXT NOT NULL
+      );
+    `);
+
+    // Seed with test data
+    await db.exec(`
+      INSERT INTO users (user_id, email, password_hash, name, created_at) VALUES
+      ('user_001', 'john.doe@example.com', 'password123', 'John Doe', '2023-10-01T10:00:00Z'),
+      ('user_002', 'jane.smith@example.com', 'password456', 'Jane Smith', '2023-10-02T12:00:00Z'),
+      ('user_003', 'test@example.com', 'test123', 'Test User', '2023-10-03T14:00:00Z')
+      ON CONFLICT (email) DO NOTHING;
+
+      INSERT INTO tasks (task_id, user_id, title, description, due_date, priority, category, tags, status, order_index, share_expires_at, created_at, updated_at) VALUES
+      ('task_001', 'user_001', 'Complete project report', 'Write and finalize the quarterly project report with charts', '2023-10-15T17:00:00Z', 'high', 'Work', 'report,urgent,q4', 'incomplete', 1, NULL, '2023-10-01T10:30:00Z', '2023-10-01T10:30:00Z'),
+      ('task_002', 'user_001', 'Grocery shopping', 'Buy milk, bread, and eggs from the store', '2023-10-07T18:00:00Z', 'low', 'Personal', 'shopping,essentials', 'incomplete', 2, '2023-10-08T18:00:00Z', '2023-10-01T11:00:00Z', '2023-10-01T11:00:00Z'),
+      ('task_003', 'user_003', 'Test task', 'A test task for the test user', '2024-01-01T12:00:00Z', 'medium', 'Work', 'test', 'incomplete', 1, NULL, '2023-10-03T15:00:00Z', '2023-10-03T15:00:00Z')
+      ON CONFLICT (task_id) DO NOTHING;
+    `);
+
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Database initialization failed:', error);
+    throw error;
+  }
+}
+
+// Initialize database on startup
+await initializeDatabase();
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -119,26 +167,20 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const client = await pool.connect();
+    const result = await db.query('SELECT user_id, email, name, predefined_categories, created_at FROM users WHERE user_id = $1', [decoded.user_id]);
     
-    try {
-      const result = await client.query('SELECT user_id, email, name, predefined_categories, created_at FROM users WHERE user_id = $1', [decoded.user_id]);
-      
-      if (result.rows.length === 0) {
-        return res.status(401).json(createErrorResponse('Invalid token - user not found', null, 'AUTH_USER_NOT_FOUND'));
-      }
-
-      // Parse predefined_categories JSON
-      const user = result.rows[0];
-      if (typeof user.predefined_categories === 'string') {
-        user.predefined_categories = JSON.parse(user.predefined_categories);
-      }
-
-      req.user = user;
-      next();
-    } finally {
-      client.release();
+    if (result.rows.length === 0) {
+      return res.status(401).json(createErrorResponse('Invalid token - user not found', null, 'AUTH_USER_NOT_FOUND'));
     }
+
+    // Parse predefined_categories JSON
+    const user = result.rows[0];
+    if (typeof user.predefined_categories === 'string') {
+      user.predefined_categories = JSON.parse(user.predefined_categories);
+    }
+
+    req.user = user;
+    next();
   } catch (error) {
     return res.status(403).json(createErrorResponse('Invalid or expired token', error, 'AUTH_TOKEN_INVALID'));
   }
@@ -172,41 +214,35 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json(createErrorResponse('Password must be at least 8 characters long', null, 'PASSWORD_TOO_SHORT'));
     }
 
-    const client = await pool.connect();
-    
-    try {
-      // Check if user already exists
-      const existingUser = await client.query('SELECT user_id FROM users WHERE email = $1', [email]);
-      if (existingUser.rows.length > 0) {
-        return res.status(400).json(createErrorResponse('User with this email already exists', null, 'USER_ALREADY_EXISTS'));
-      }
-
-      // Create new user with server-generated ID and timestamp
-      const user_id = uuidv4();
-      const created_at = new Date().toISOString();
-      
-      const result = await client.query(
-        'INSERT INTO users (user_id, email, password_hash, name, predefined_categories, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING user_id, email, name, predefined_categories, created_at',
-        [user_id, email, password_hash, name, JSON.stringify(predefined_categories), created_at]
-      );
-
-      const user = result.rows[0];
-      user.predefined_categories = predefined_categories; // Return as array, not JSON string
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { user_id: user.user_id, email: user.email }, 
-        JWT_SECRET, 
-        { expiresIn: '7d' }
-      );
-
-      res.status(201).json({
-        token,
-        user
-      });
-    } finally {
-      client.release();
+    // Check if user already exists
+    const existingUser = await db.query('SELECT user_id FROM users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
+      return res.status(400).json(createErrorResponse('User with this email already exists', null, 'USER_ALREADY_EXISTS'));
     }
+
+    // Create new user with server-generated ID and timestamp
+    const user_id = uuidv4();
+    const created_at = new Date().toISOString();
+    
+    const result = await db.query(
+      'INSERT INTO users (user_id, email, password_hash, name, predefined_categories, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING user_id, email, name, predefined_categories, created_at',
+      [user_id, email, password_hash, name, JSON.stringify(predefined_categories), created_at]
+    );
+
+    const user = result.rows[0];
+    user.predefined_categories = predefined_categories; // Return as array, not JSON string
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { user_id: user.user_id, email: user.email }, 
+      JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      token,
+      user
+    });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json(createErrorResponse('Internal server error', error, 'INTERNAL_SERVER_ERROR'));
@@ -227,44 +263,38 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json(createErrorResponse('Email and password are required', null, 'MISSING_REQUIRED_FIELDS'));
     }
 
-    const client = await pool.connect();
-    
-    try {
-      // Find user with direct password comparison
-      const result = await client.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
-      if (result.rows.length === 0) {
-        return res.status(401).json(createErrorResponse('Invalid email or password', null, 'INVALID_CREDENTIALS'));
-      }
-
-      const user = result.rows[0];
-
-      // Check password (direct comparison for development)
-      if (password !== user.password_hash) {
-        return res.status(401).json(createErrorResponse('Invalid email or password', null, 'INVALID_CREDENTIALS'));
-      }
-
-      // Parse predefined_categories JSON
-      if (typeof user.predefined_categories === 'string') {
-        user.predefined_categories = JSON.parse(user.predefined_categories);
-      }
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { user_id: user.user_id, email: user.email }, 
-        JWT_SECRET, 
-        { expiresIn: '7d' }
-      );
-
-      // Return user without password
-      const { password_hash, ...userWithoutPassword } = user;
-
-      res.json({
-        token,
-        user: userWithoutPassword
-      });
-    } finally {
-      client.release();
+    // Find user with direct password comparison
+    const result = await db.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+    if (result.rows.length === 0) {
+      return res.status(401).json(createErrorResponse('Invalid email or password', null, 'INVALID_CREDENTIALS'));
     }
+
+    const user = result.rows[0];
+
+    // Check password (direct comparison for development)
+    if (password !== user.password_hash) {
+      return res.status(401).json(createErrorResponse('Invalid email or password', null, 'INVALID_CREDENTIALS'));
+    }
+
+    // Parse predefined_categories JSON
+    if (typeof user.predefined_categories === 'string') {
+      user.predefined_categories = JSON.parse(user.predefined_categories);
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { user_id: user.user_id, email: user.email }, 
+      JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
+
+    // Return user without password
+    const { password_hash, ...userWithoutPassword } = user;
+
+    res.json({
+      token,
+      user: userWithoutPassword
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json(createErrorResponse('Internal server error', error, 'INTERNAL_SERVER_ERROR'));
@@ -513,17 +543,18 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
       filter_tags,
       sort_by = 'order_index',
       sort_order = 'asc',
-      limit = 10,
-      offset = 0
+      limit: limitParam = '10',
+      offset: offsetParam = '0'
     } = req.query;
 
-    const client = await pool.connect();
-    
-    try {
-      // Build WHERE clause
-      let whereConditions = ['user_id = $1'];
-      let params = [req.user.user_id];
-      let paramIndex = 2;
+    // Coerce query parameters
+    const limit = Math.min(Math.max(parseInt(limitParam as string) || 10, 1), 1000);
+    const offset = Math.max(parseInt(offsetParam as string) || 0, 0);
+
+    // Build WHERE clause
+    let whereConditions = ['user_id = $1'];
+    let params = [req.user.user_id];
+    let paramIndex = 2;
 
       // Apply filters
       if (filter_status) {
@@ -567,30 +598,27 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
       const sortField = validSortFields.includes(sort_by) ? sort_by : 'order_index';
       const sortDirection = validSortOrders.includes(sort_order) ? sort_order : 'asc';
 
-      // Get total count
-      const countQuery = `SELECT COUNT(*) FROM tasks ${whereClause}`;
-      const countResult = await client.query(countQuery, params);
-      const total = parseInt(countResult.rows[0].count);
+    // Get total count
+    const countQuery = `SELECT COUNT(*) FROM tasks ${whereClause}`;
+    const countResult = await db.query(countQuery, params);
+    const total = parseInt(countResult.rows[0].count);
 
-      // Get tasks
-      const tasksQuery = `
-        SELECT task_id, user_id, title, description, due_date, priority, category, tags, status, order_index, share_expires_at, created_at, updated_at
-        FROM tasks 
-        ${whereClause}
-        ORDER BY ${sortField} ${sortDirection}
-        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-      `;
-      
-      params.push(parseInt(limit), parseInt(offset));
-      const tasksResult = await client.query(tasksQuery, params);
+    // Get tasks
+    const tasksQuery = `
+      SELECT task_id, user_id, title, description, due_date, priority, category, tags, status, order_index, share_expires_at, created_at, updated_at
+      FROM tasks 
+      ${whereClause}
+      ORDER BY ${sortField} ${sortDirection}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    
+    params.push(limit, offset);
+    const tasksResult = await db.query(tasksQuery, params);
 
-      res.json({
-        tasks: tasksResult.rows,
-        total
-      });
-    } finally {
-      client.release();
-    }
+    res.json({
+      tasks: tasksResult.rows,
+      total
+    });
   } catch (error) {
     console.error('List tasks error:', error);
     res.status(500).json(createErrorResponse('Internal server error', error, 'INTERNAL_SERVER_ERROR'));
@@ -625,48 +653,42 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
       return res.status(400).json(createErrorResponse('Validation failed', validationResult.error, 'VALIDATION_ERROR'));
     }
 
-    const client = await pool.connect();
-    
-    try {
-      // Get next order_index if not specified
-      let order_index = validationData.order_index;
-      if (order_index === 0) {
-        const maxOrderResult = await client.query(
-          'SELECT COALESCE(MAX(order_index), -1) + 1 as next_order FROM tasks WHERE user_id = $1',
-          [req.user.user_id]
-        );
-        order_index = maxOrderResult.rows[0].next_order;
-      }
-
-      // Create task with server-generated values
-      const task_id = uuidv4();
-      const now = new Date().toISOString();
-
-      const result = await client.query(
-        `INSERT INTO tasks (task_id, user_id, title, description, due_date, priority, category, tags, status, order_index, share_expires_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         RETURNING *`,
-        [
-          task_id,
-          req.user.user_id,
-          validationData.title,
-          validationData.description,
-          validationData.due_date,
-          validationData.priority,
-          validationData.category,
-          validationData.tags,
-          validationData.status,
-          order_index,
-          validationData.share_expires_at,
-          now,
-          now
-        ]
+    // Get next order_index if not specified
+    let order_index = validationData.order_index;
+    if (order_index === 0) {
+      const maxOrderResult = await db.query(
+        'SELECT COALESCE(MAX(order_index), -1) + 1 as next_order FROM tasks WHERE user_id = $1',
+        [req.user.user_id]
       );
-
-      res.status(201).json(result.rows[0]);
-    } finally {
-      client.release();
+      order_index = maxOrderResult.rows[0].next_order;
     }
+
+    // Create task with server-generated values
+    const task_id = uuidv4();
+    const now = new Date().toISOString();
+
+    const result = await db.query(
+      `INSERT INTO tasks (task_id, user_id, title, description, due_date, priority, category, tags, status, order_index, share_expires_at, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [
+        task_id,
+        req.user.user_id,
+        validationData.title,
+        validationData.description,
+        validationData.due_date,
+        validationData.priority,
+        validationData.category,
+        validationData.tags,
+        validationData.status,
+        order_index,
+        validationData.share_expires_at,
+        now,
+        now
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Create task error:', error);
     res.status(500).json(createErrorResponse('Internal server error', error, 'INTERNAL_SERVER_ERROR'));
@@ -1141,7 +1163,7 @@ app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-export { app, pool };
+export { app, db };
 
 // Start the server
 app.listen(port, '0.0.0.0', () => {

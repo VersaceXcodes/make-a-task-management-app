@@ -15,7 +15,7 @@ export const userSchema = z.object({
 // Input schema for creating users
 export const createUserInputSchema = z.object({
   email: z.string().email('Invalid email address').min(1).max(255),
-  password_hash: z.string().min(60, 'Password hash must be at least 60 characters (e.g., bcrypt)'),
+  password_hash: z.string().min(8, 'Password must be at least 8 characters'),
   name: z.string().min(1).max(100).nullable(),
   predefined_categories: z.array(z.string()).min(1).default(['Work', 'Personal', 'School', 'Other'])
 });
@@ -56,7 +56,7 @@ export const taskSchema = z.object({
   priority: z.enum(['low', 'medium', 'high']).nullable(),
   category: z.string().nullable(),
   tags: z.string().nullable(),
-  status: z.enum(['incomplete', 'completed']),
+  status: z.enum(['incomplete', 'completed', 'archived']),
   order_index: z.number().int().nonnegative(),
   share_expires_at: z.coerce.date().nullable(),
   created_at: z.coerce.date(),
@@ -72,7 +72,7 @@ export const createTaskInputSchema = z.object({
   priority: z.enum(['low', 'medium', 'high']).nullable(),
   category: z.string().min(1).max(100).nullable(),
   tags: z.string().max(500).nullable(), // Comma-separated tags
-  status: z.enum(['incomplete', 'completed']).default('incomplete'),
+  status: z.enum(['incomplete', 'completed', 'archived']).default('incomplete'),
   order_index: z.number().int().nonnegative().default(0),
   share_expires_at: z.coerce.date().nullable()
 });
@@ -87,7 +87,7 @@ export const updateTaskInputSchema = z.object({
   priority: z.enum(['low', 'medium', 'high']).nullable().optional(),
   category: z.string().min(1).max(100).nullable().optional(),
   tags: z.string().max(500).nullable().optional(),
-  status: z.enum(['incomplete', 'completed']).optional(),
+  status: z.enum(['incomplete', 'completed', 'archived']).optional(),
   order_index: z.number().int().nonnegative().optional(),
   share_expires_at: z.coerce.date().nullable().optional()
 });
@@ -96,7 +96,7 @@ export const updateTaskInputSchema = z.object({
 export const searchTaskInputSchema = z.object({
   query: z.string().optional(), // Search in title, description, category
   user_id: z.string().optional(),
-  status: z.enum(['incomplete', 'completed']).optional(),
+  status: z.enum(['incomplete', 'completed', 'archived']).optional(),
   category: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high']).optional(),
   limit: z.number().int().positive().max(100).default(10),
